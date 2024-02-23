@@ -1,0 +1,176 @@
+
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Atari Onlin - BASIC Textbox</title>
+    <meta property="og:image" content="preview.png">
+  </head>
+  <body style="margin:0 8px;background-color:#25190a;color:#9d9d7d">
+    
+    <pre style="text-align: center;margin:2px"><a href="https://eahumada.github.io/AtariOnline/">ATARI ONLINE</a> | F1=HELP  F2=START F3=SELECT F4=OPTION | ARROWS=Joystick, LEFT ALT=Fire</pre>
+    <canvas id="canvas" style="width: 50%; height: 50%; display: block; margin: 0 auto;" onmousedown="if (document.activeElement instanceof HTMLElement)document.activeElement.blur();"></canvas>
+    <div>
+      <textarea id="code" style="overflow-y:scroll;margin-top:10px;width:100%;height:200px;color:#77b7ff;background-color:#11519b" type="text"></textarea>
+      <button id="runCode" onclick="">PASTE - Ctrl+Enter | Alt+Enter</button>
+    </div>
+    
+    <div style="text-align: center; margin: 2 auto;">
+      <img id="keyboard" src="../img/atari-keyboard.jpeg" style="width: 450; height: 150;"></img>
+      <input type="button" onclick='emulator.toggleMute()' value="Mute"></input>
+    </div>
+    <pre style="text-align: center">Symbols are located as in original keyboard, please see image.</pre> 
+    <pre style="text-align: center">Mappings: RIGHT ALT = Inverse, F7 = Break, CTRL+SYMBOLS=Arrows</pre>    
+
+    <script type="text/javascript" src="../js/emularity/es6-promise.js"></script>
+    <script type="text/javascript" src="../js/emularity/browserfs.min.js"></script>
+    <script type="text/javascript" src="../js/emularity/loader.js"></script>
+    <script type="text/javascript" src="../js/atarionline.js"></script>
+    <script type="text/javascript">
+
+      var disk = get_url_param("disk");
+      
+      if(!disk) {
+        disk= "basic-programs.atr";
+      }
+
+      var mountDisk = JSMESSLoader.mountFile("disk1.atr",JSMESSLoader.fetchFile("Disk",disk));
+      var diskPeripheral = JSMESSLoader.peripheral("flop1", "disk1.atr");
+
+      var emulator = new Emulator(document.querySelector("#canvas"),
+        null,
+        new JSMESSLoader(JSMESSLoader.driver("a800xl"),
+                          JSMESSLoader.nativeResolution(672, 450),
+                          JSMESSLoader.scale(1.3),
+                          JSMESSLoader.mountFile("a800xl.zip",
+                                                JSMESSLoader.fetchFile("Bios",
+                                                                        "../emulators/mame/a800xl.zip")),
+                          JSMESSLoader.mountFile("a800xl.cfg",
+                                                JSMESSLoader.fetchFile("Config",
+                                                                        "../emulators/mame/a800xl.cfg")),
+                          mountDisk,
+                          diskPeripheral,
+                          JSMESSLoader.emulatorJS("../js/emulators/mame/mamea800xl.js"),
+                          JSMESSLoader.emulatorWASM("../js/emulators/mame/mamea800xl.wasm"),
+                          JSMESSLoader.extraArgs([""]))
+                          )
+      // emulator.mute();
+      emulator.start({ waitAfterDownloading: false });
+
+      // Code run capability
+      function setupCodeTextbox() {
+        // Store ref to code textbox
+        let codeTextbox = document.querySelector("#code");
+        
+        let key_break = 118; // F7
+
+        // Load code from last save
+        codeTextbox.value = localStorage.getItem("code");
+
+        // Auto save 5 seconds after last keypress in textbox
+        let autoSaveTimeout = null;
+
+        // handle key down - simply track if something might have changed
+        function protectCodeKeys (e) {
+          e.stopPropagation();
+          if (e.keyCode==13 && (e.altKey || e.ctrlKey)) {
+            e.preventDefault();
+            runCode();
+            return;
+          }
+
+          // Do not save for arrow keys
+          if (e.keyCode>=37 && e.keyCode <=40)
+            return;
+
+         console.log(e.keyCode);
+
+          if (autoSaveTimeout)
+            clearTimeout(autoSaveTimeout);
+
+          autoSaveTimeout = setTimeout(function() {
+              localStorage.setItem("code",codeTextbox.value);  
+          },3000);
+
+          return true;
+        }
+      
+        function runCode() {
+          let code = codeTextbox.value.trim()+"\n"; //+"\nRUN\n";
+          //let code = "GR.0\n\n\n"+codeTextbox.value
+          let char=0;
+          let lastKeyCode=0;
+          let shiftKey=false;
+          let forceDelay=false;
+          const keyMap={ 
+           '"':50, ',': 188, ".":190, "<":189, ">":187, "/":191, 
+           "?":191, ";":186, ":":186, "+": 222, "-":219, "*": 220, 
+           "=":221, "(":57, ")":48, "[":188, "]":190,"$":52
+           
+          };
+
+          const shiftKeys='"?:()[]$';
+
+          function sendKey(keyCode) {
+            let delay = forceDelay || (keyCode==lastKeyCode ? 100 : 1);
+            lastKeyCode=keyCode;
+            forceDelay=false;
+
+            setTimeout(function() {
+              window.dispatchEvent(new KeyboardEvent('keydown', {keyCode:keyCode, shiftKey:shiftKey}));
+
+              setTimeout(function(){
+                window.dispatchEvent(new KeyboardEvent('keyup', {keyCode:keyCode, shiftKey:shiftKey}));
+                  
+                  if (shiftKey) {
+                    window.dispatchEvent(new KeyboardEvent('keyup', {keyCode:16, shiftKey:shiftKey}));
+                    shiftKey=false;
+                  }
+
+                  if (char>=code.length) {
+                    //codeTextbox.style.color="#77b7ff";
+                    codeTextbox.disabled=false;
+                    return;
+                  }
+                  shift=false;
+                  
+
+                  let key = code.charCodeAt(char);
+                  //console.log(code[char]+" : " + key);
+                  let charCode = code[char];
+                  if (keyMap[charCode]) 
+                    key = keyMap[charCode];
+                  
+                  shiftKey= shiftKeys.indexOf(charCode)>-1;
+                    
+
+                  // Translate return
+                  if (key==10) 
+                    key=13;
+
+                  if (shiftKey) {
+                    window.dispatchEvent(new KeyboardEvent('keydown', {keyCode:16, shiftKey:shiftKey}));
+                  }
+                  sendKey(key);
+                  if (key==13) {
+                    forceDelay=500;
+                  }
+                
+                  char++;
+              
+              },32);
+            }, delay);
+          }
+          codeTextbox.disabled=true;
+          //codeTextbox.style.color="#000000"; //224165";
+          sendKey(key_break);
+          forceDelay=500;
+        }
+        
+        codeTextbox.onkeydown = protectCodeKeys;
+        document.querySelector("#runCode").onclick=runCode;
+    }
+
+      setupCodeTextbox();
+    </script>
+  </body>
+</html>
